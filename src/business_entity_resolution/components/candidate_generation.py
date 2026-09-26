@@ -1,6 +1,6 @@
 import logging
 import sys
-
+import re
 import pandas as pd
 
 from business_entity_resolution.utils.exception import (
@@ -9,15 +9,56 @@ from business_entity_resolution.utils.exception import (
 
 
 class CandidateGeneration:
-
     def __init__(self):
         pass
 
     @staticmethod
+    def create_numeric_address_keys(df):
+
+        keys = []
+
+        for address, country in zip(
+            df["business_address_clean"],
+            df["country"]
+        ):
+
+            if pd.isna(address):
+
+                keys.append([])
+
+                continue
+
+            numbers = re.findall(
+                r"\b\d{3,}\b",
+                str(address)
+            )
+
+            country_value = (
+                str(country).strip().lower()
+                if not pd.isna(country)
+                else ""
+            )
+
+            numeric_keys = [
+                f"{country_value}_{number}"
+                for number in numbers
+            ]
+
+            keys.append(
+                list(set(numeric_keys))
+            )
+
+        return keys
+    
+    @staticmethod
     def create_blocking_keys(df):
+
         df = df.copy()
 
-        # Name-based blocking key
+        # -----------------------------
+        # Name-based blocking
+        # -----------------------------
+
         df["name_block"] = (
             df["business_name_clean"]
             .fillna("")
@@ -26,12 +67,18 @@ class CandidateGeneration:
         )
 
         df["name_blocking_key"] = (
-            df["country"].fillna("").astype(str)
+            df["country"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
             + "_"
             + df["name_block"]
         )
 
-        # Address-based blocking key
+        # -----------------------------
+        # Address-based blocking
+        # -----------------------------
+
         df["address_block"] = (
             df["business_address_clean"]
             .fillna("")
@@ -40,13 +87,26 @@ class CandidateGeneration:
         )
 
         df["address_blocking_key"] = (
-            df["country"].fillna("").astype(str)
+            df["country"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
             + "_"
             + df["address_block"]
         )
 
-        return df
+        # -----------------------------
+        # Numeric address blocking
+        # -----------------------------
 
+        df["numeric_address_blocking_keys"] = (
+            CandidateGeneration.create_numeric_address_keys(
+                df
+            )
+        )
+
+        return df
+    
     @staticmethod
     def generate_candidates_from_key(
         source1,
@@ -69,6 +129,58 @@ class CandidateGeneration:
         candidates = source1_blocked.merge(
             source2_blocked,
             on=blocking_key,
+            how="inner",
+            suffixes=(
+                "_s1",
+                f"_{source_suffix}"
+            )
+        )
+
+        return candidates
+
+    @staticmethod
+    def generate_candidates_from_numeric_key(
+        source1,
+        source2,
+        source_suffix
+    ):
+
+        # Keep only records that have at least one
+        # usable numeric address key.
+        source1_numeric = source1[
+            source1["numeric_address_blocking_keys"].map(
+                len
+            ) > 0
+        ].copy()
+
+        source2_numeric = source2[
+            source2["numeric_address_blocking_keys"].map(
+                len
+            ) > 0
+        ].copy()
+
+        if source1_numeric.empty or source2_numeric.empty:
+
+            return pd.DataFrame()
+
+        # One row per numeric blocking key.
+        source1_numeric = (
+            source1_numeric
+            .explode(
+                "numeric_address_blocking_keys"
+            )
+        )
+
+        source2_numeric = (
+            source2_numeric
+            .explode(
+                "numeric_address_blocking_keys"
+            )
+        )
+
+        candidates = source1_numeric.merge(
+            source2_numeric,
+            on="numeric_address_blocking_keys",
             how="inner",
             suffixes=(
                 "_s1",
@@ -107,7 +219,11 @@ class CandidateGeneration:
         )
 
         try:
+
+            # -----------------------------
             # Create blocking keys
+            # -----------------------------
+
             source1 = self.create_blocking_keys(
                 source1
             )
@@ -120,7 +236,10 @@ class CandidateGeneration:
                 source3
             )
 
+            # ==================================================
             # S1 -> S2
+            # ==================================================
+
             # Name blocking
             candidates_s2_name = (
                 self.generate_candidates_from_key(
@@ -131,7 +250,7 @@ class CandidateGeneration:
                 )
             )
 
-            # Address blocking
+            # Address prefix blocking
             candidates_s2_address = (
                 self.generate_candidates_from_key(
                     source1,
@@ -141,11 +260,36 @@ class CandidateGeneration:
                 )
             )
 
-            # Combine both blocking strategies
+            # Numeric address blocking
+            candidates_s2_numeric = (
+                self.generate_candidates_from_numeric_key(
+                    source1,
+                    source2,
+                    "s2"
+                )
+            )
+
+            logging.info(
+                f"S2 name candidates: "
+                f"{len(candidates_s2_name)}"
+            )
+
+            logging.info(
+                f"S2 address candidates: "
+                f"{len(candidates_s2_address)}"
+            )
+
+            logging.info(
+                f"S2 numeric address candidates: "
+                f"{len(candidates_s2_numeric)}"
+            )
+
+            # Combine all S2 blocking strategies
             candidates_s2 = pd.concat(
                 [
                     candidates_s2_name,
-                    candidates_s2_address
+                    candidates_s2_address,
+                    candidates_s2_numeric
                 ],
                 ignore_index=True
             )
@@ -157,7 +301,10 @@ class CandidateGeneration:
                 )
             )
 
+            # ==================================================
             # S1 -> S3
+            # ==================================================
+
             # Name blocking
             candidates_s3_name = (
                 self.generate_candidates_from_key(
@@ -168,7 +315,7 @@ class CandidateGeneration:
                 )
             )
 
-            # Address blocking
+            # Address prefix blocking
             candidates_s3_address = (
                 self.generate_candidates_from_key(
                     source1,
@@ -178,11 +325,36 @@ class CandidateGeneration:
                 )
             )
 
-            # Combine both blocking strategies
+            # Numeric address blocking
+            candidates_s3_numeric = (
+                self.generate_candidates_from_numeric_key(
+                    source1,
+                    source3,
+                    "s3"
+                )
+            )
+
+            logging.info(
+                f"S3 name candidates: "
+                f"{len(candidates_s3_name)}"
+            )
+
+            logging.info(
+                f"S3 address candidates: "
+                f"{len(candidates_s3_address)}"
+            )
+
+            logging.info(
+                f"S3 numeric address candidates: "
+                f"{len(candidates_s3_numeric)}"
+            )
+
+            # Combine all S3 blocking strategies
             candidates_s3 = pd.concat(
                 [
                     candidates_s3_name,
-                    candidates_s3_address
+                    candidates_s3_address,
+                    candidates_s3_numeric
                 ],
                 ignore_index=True
             )
@@ -194,12 +366,18 @@ class CandidateGeneration:
                 )
             )
 
+            # -----------------------------
+            # Final logging
+            # -----------------------------
+
             logging.info(
-                f"S2 candidate pairs: {len(candidates_s2)}"
+                f"S2 candidate pairs: "
+                f"{len(candidates_s2)}"
             )
 
             logging.info(
-                f"S3 candidate pairs: {len(candidates_s3)}"
+                f"S3 candidate pairs: "
+                f"{len(candidates_s3)}"
             )
 
             logging.info(
@@ -221,7 +399,6 @@ class CandidateGeneration:
                 e,
                 sys
             )
-
 
 if __name__ == "__main__":
     print("CandidateGeneration component loaded successfully.")
