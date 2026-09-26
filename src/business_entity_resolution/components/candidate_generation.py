@@ -15,41 +15,43 @@ class CandidateGeneration:
     @staticmethod
     def create_numeric_address_keys(df):
 
-        keys = []
+        numeric_keys = []
 
         for address, country in zip(
             df["business_address_clean"],
             df["country"]
         ):
 
-            if pd.isna(address):
+            keys = []
 
-                keys.append([])
+            if pd.notna(address):
 
-                continue
+                numbers = re.findall(
+                    r"\b\d{3,}\b",
+                    str(address)
+                )
 
-            numbers = re.findall(
-                r"\b\d{3,}\b",
-                str(address)
-            )
+                for number in numbers:
 
-            country_value = (
-                str(country).strip().lower()
-                if not pd.isna(country)
-                else ""
-            )
+                    if pd.notna(country):
 
-            numeric_keys = [
-                f"{country_value}_{number}"
-                for number in numbers
-            ]
+                        normalized_number = (
+                            number.lstrip("0")
+                            or "0"
+                        )
 
-            keys.append(
-                list(set(numeric_keys))
-            )
+                        key = (
+                            str(country).lower()
+                            + "_"
+                            + normalized_number
+                        )
 
-        return keys
-    
+                        keys.append(key)
+
+            numeric_keys.append(keys)
+
+        return numeric_keys
+
     @staticmethod
     def create_blocking_keys(df):
 
