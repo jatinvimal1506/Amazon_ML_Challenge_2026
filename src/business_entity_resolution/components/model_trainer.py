@@ -98,13 +98,78 @@ class ModelTrainer:
 
         try:
 
+            data = feature_data.copy()
+
+            # -------------------------------------------------
+            # Standardize candidate ID columns
+            # -------------------------------------------------
+
+            if "source1_entity_id" not in data.columns:
+
+                if "entity_id_s1" in data.columns:
+
+                    data = data.rename(
+                        columns={
+                            "entity_id_s1":
+                                "source1_entity_id"
+                        }
+                    )
+
+            if "matched_entity_id" not in data.columns:
+
+                if "entity_id_s2" in data.columns:
+
+                    data = data.rename(
+                        columns={
+                            "entity_id_s2":
+                                "matched_entity_id"
+                        }
+                    )
+
+                elif "entity_id_s3" in data.columns:
+
+                    data = data.rename(
+                        columns={
+                            "entity_id_s3":
+                                "matched_entity_id"
+                        }
+                    )
+
+            # -------------------------------------------------
+            # Check required columns
+            # -------------------------------------------------
+
+            required_columns = [
+                "source1_entity_id",
+                "matched_entity_id"
+            ]
+
+            missing_columns = [
+                column
+                for column in required_columns
+                if column not in data.columns
+            ]
+
+            if missing_columns:
+
+                raise ValueError(
+                    f"Missing columns for label creation: "
+                    f"{missing_columns}"
+                )
+
+            # -------------------------------------------------
+            # Prepare ground truth
+            # -------------------------------------------------
+
             ground_truth_pairs = (
                 ModelTrainer.prepare_ground_truth(
                     ground_truth
                 )
             )
 
-            data = feature_data.copy()
+            # -------------------------------------------------
+            # Create labels
+            # -------------------------------------------------
 
             data = data.merge(
                 ground_truth_pairs.assign(
@@ -131,7 +196,7 @@ class ModelTrainer:
                 e,
                 sys
             )
-
+        
     @staticmethod
     def select_feature_columns(data):
         feature_columns = [
@@ -139,9 +204,9 @@ class ModelTrainer:
             "address_similarity",
             "country_same",
             "name_missing_s1",
-            "name_missing_s2",
+            "name_missing_source",
             "address_missing_s1",
-            "address_missing_s2"
+            "address_missing_source"
         ]
 
         available_columns = [

@@ -3,17 +3,40 @@ import os
 from datetime import datetime
 
 
-LOG_DIR = os.path.join(os.getcwd(), "logs")
+PROJECT_ROOT = os.path.abspath(
+    os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "..",
+        "..",
+    )
+)
 
-os.makedirs(LOG_DIR, exist_ok=True)
+LOG_DIR = os.path.join(
+    PROJECT_ROOT,
+    "logs"
+)
 
-LOG_FILE = f"{datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}.log"
+os.makedirs(
+    LOG_DIR,
+    exist_ok=True
+)
 
-LOG_FILE_PATH = os.path.join(LOG_DIR, LOG_FILE)
+LOG_FILE = os.path.join(
+    LOG_DIR,
+    f"{datetime.now().strftime('%m_%d_%Y_%H_%M_%S')}.log"
+)
 
 
 logging.basicConfig(
-    filename=LOG_FILE_PATH,
-    format="[ %(asctime)s ] %(lineno)d %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
+    format="[ %(asctime)s ] %(lineno)d %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(
+            LOG_FILE,
+            encoding="utf-8"
+        ),
+        logging.StreamHandler()
+    ],
+    force=True
 )
